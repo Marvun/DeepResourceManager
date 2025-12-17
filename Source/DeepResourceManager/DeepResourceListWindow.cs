@@ -780,10 +780,9 @@ namespace DeepResourceManager
             float colYieldWidth = 100f;
             float colDrillsWidth = 100f;
             float colCommonWidth = 100f;
-            float colMineableWidth = 100f; // Column for mineable amount in drill radius
             float colAllowedWidth = 80f; // Column for allowed checkbox on deposit rows
             float colSpacing = 2f;
-            float totalTableWidth = colExpandWidth + colResourceWidth + colCellsWidth + colYieldWidth + colDrillsWidth + colCommonWidth + colMineableWidth + colAllowedWidth + (colSpacing * 7);
+            float totalTableWidth = colExpandWidth + colResourceWidth + colCellsWidth + colYieldWidth + colDrillsWidth + colCommonWidth + colAllowedWidth + (colSpacing * 6);
             float checkboxSize = 24f; // Size for checkboxes (used in both deposit and drill rows) - matches RimWorld's default checkbox size
             
             float yPos = 55f; // Start below title and count text
@@ -854,13 +853,6 @@ namespace DeepResourceManager
             GUI.color = Color.white;
             Widgets.Label(headerCommonRect, "Commonality");
             currentX += colCommonWidth + colSpacing;
-            
-            // Header: Mineable (for drill rows)
-            Rect headerMineableRect = new Rect(currentX, headerY, colMineableWidth, lineHeight);
-            Widgets.DrawBoxSolid(headerMineableRect, new Color(0.2f, 0.2f, 0.2f, 0.8f));
-            GUI.color = Color.white;
-            Widgets.Label(headerMineableRect, "Mineable");
-            currentX += colMineableWidth + colSpacing;
             
             // Header: Allowed
             Rect headerAllowedRect = new Rect(currentX, headerY, colAllowedWidth, lineHeight);
@@ -1052,18 +1044,13 @@ namespace DeepResourceManager
                 }
                 currentX += colCommonWidth + colSpacing;
                 
-                // Mineable cell (empty for deposit rows, filled in drill rows)
-                Rect mineableCellRect = new Rect(currentX, currentY, colMineableWidth, lineHeight);
-                // Leave empty for deposit rows - will be filled in drill rows
-                currentX += colMineableWidth + colSpacing;
-                
-                // Allowed checkbox for deposit row
-                Rect depositAllowedRect = new Rect(currentX, currentY, colAllowedWidth, lineHeight);
-                
-                // Calculate state based on all drills in this deposit
-                MultiCheckboxState depositAllowedState = MultiCheckboxState.Off;
-                if (depositDrills.ContainsKey(depositIndex) && depositDrills[depositIndex].Count > 0)
+                // Allowed checkbox for deposit row (only show if deposit has drills)
+                if (hasDrills && depositDrills.ContainsKey(depositIndex) && depositDrills[depositIndex].Count > 0)
                 {
+                    Rect depositAllowedRect = new Rect(currentX, currentY, colAllowedWidth, lineHeight);
+                    
+                    // Calculate state based on all drills in this deposit
+                    MultiCheckboxState depositAllowedState = MultiCheckboxState.Off;
                     var drills = depositDrills[depositIndex];
                     int allowedCount = 0;
                     int forbiddenCount = 0;
@@ -1090,17 +1077,14 @@ namespace DeepResourceManager
                     {
                         depositAllowedState = MultiCheckboxState.Partial; // Mixed state
                     }
-                }
-                
-                // Draw checkbox using RimWorld's built-in multi-checkbox
-                Rect checkboxRect = new Rect(depositAllowedRect.x + (colAllowedWidth - checkboxSize) / 2f, depositAllowedRect.y + (lineHeight - checkboxSize) / 2f, checkboxSize, checkboxSize);
-                
-                MultiCheckboxState newState = Widgets.CheckboxMulti(checkboxRect, depositAllowedState);
-                if (newState != depositAllowedState)
-                {
-                    // Apply new state to all drills
-                    if (depositDrills.ContainsKey(depositIndex))
+                    
+                    // Draw checkbox using RimWorld's built-in multi-checkbox
+                    Rect checkboxRect = new Rect(depositAllowedRect.x + (colAllowedWidth - checkboxSize) / 2f, depositAllowedRect.y + (lineHeight - checkboxSize) / 2f, checkboxSize, checkboxSize);
+                    
+                    MultiCheckboxState newState = Widgets.CheckboxMulti(checkboxRect, depositAllowedState);
+                    if (newState != depositAllowedState)
                     {
+                        // Apply new state to all drills
                         bool setToAllowed = (newState == MultiCheckboxState.On);
                         foreach (var drill in depositDrills[depositIndex])
                         {
@@ -1186,15 +1170,8 @@ namespace DeepResourceManager
                             Widgets.Label(progressTextRect, $"{drillInfo.progressPercent * 100f:F1}%");
                         }
                         
-                        // Mineable amount text - align with Total Yield column
-                        float totalYieldColumnX = colExpandWidth + colSpacing + colResourceWidth + colSpacing + colCellsWidth + colSpacing;
-                        Rect mineableTextRect = new Rect(totalYieldColumnX, drillY, colYieldWidth, drillRowHeight);
-                        Text.Anchor = TextAnchor.MiddleRight; // Match the alignment of Total Yield column
-                GUI.color = Color.white;
-                        Widgets.Label(mineableTextRect, drillInfo.mineableAmount.ToString());
-                        
                         // Allowed checkbox - align with deposit checkbox column
-                        float allowedColumnX = colExpandWidth + colSpacing + colResourceWidth + colSpacing + colCellsWidth + colSpacing + colYieldWidth + colSpacing + colDrillsWidth + colSpacing + colCommonWidth + colSpacing + colMineableWidth + colSpacing;
+                        float allowedColumnX = colExpandWidth + colSpacing + colResourceWidth + colSpacing + colCellsWidth + colSpacing + colYieldWidth + colSpacing + colDrillsWidth + colSpacing + colCommonWidth + colSpacing;
                         Rect allowRect = new Rect(allowedColumnX, drillY, colAllowedWidth, drillRowHeight);
                         Vector2 checkboxPos = new Vector2(allowRect.x + (colAllowedWidth - checkboxSize) / 2f, allowRect.y + (drillRowHeight - checkboxSize) / 2f);
                         bool isAllowed = !drill.IsForbidden(Faction.OfPlayer);
