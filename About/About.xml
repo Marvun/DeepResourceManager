@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+    <name>Deep Resource Manager</name>
+    <author>Marvun</author>
+    <packageId>Marvun.DeepResourceManager</packageId>
+    <description>
+        A comprehensive mod that displays all discovered deep resources in an organized table with advanced filtering and drill management.
+        
+        Features:
+        - View all discovered deep resources in a detailed table
+        - Filter by resource type (with persistent settings)
+        - See active drills and their status (idle, working, no power)
+        - Manage drill permissions (allowed/forbidden)
+        - Track mineable amounts per deposit and per drill
+        - Expandable drill details showing progress and status
+        - Click to jump to deposits and drills
+        - Supports both standard deep resources and treasure mod resources
+    </description>
+    <supportedVersions>
+        <li>1.6</li>
+    </supportedVersions>
+    <modDependencies>
+    </modDependencies>
+</ModMetaData>
+

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+    <MainButtonDef>
+        <defName>DeepResourceManager</defName>
+        <label>Deep Resources</label>
+        <iconPath>UI/Buttons/DeepDrillIcon</iconPath>
+        <description>Open the deep resource manager</description>
+        <order>100</order>
+        <validWithoutMap>false</validWithoutMap>
+        <minimized>True</minimized>
+        <tabWindowClass>DeepResourceManager.MainTabWindow_DeepResources</tabWindowClass>
+    </MainButtonDef>
+</Defs>
+
