@@ -192,19 +192,8 @@ namespace DeepResourceManager
         private readonly float lineHeight = 32f;
         private readonly float iconSize = 28f;
         private readonly float drillRowHeight = 32f; // Height of each drill sub-row (match deposit rows)
-        private bool isDirty = true;
-        private int listUpdateNext = 0; // Tick when to update next
         private ResourceDeposit? hoveredDeposit = null; // Currently hovered deposit
         private LookTargets hoveredLookTargets = null; // LookTargets for hovered deposit (used for arrow drawing)
-        
-        // Caching for performance
-        private List<ResourceDeposit> cachedFilteredDeposits = null; // Cached filtered and sorted deposits
-        private Dictionary<ThingDef, float> cachedCommonality = new Dictionary<ThingDef, float>(); // Cache commonality values
-        private Dictionary<int, int> cachedDepositIndices = new Dictionary<int, int>(); // Cache deposit index lookups
-        private bool cacheDirty = true; // Track if cache needs refresh
-        private int drillStatusUpdateNext = 0; // Tick when to update drill status next (less frequent)
-        private Dictionary<Building, DrillStatusInfo> cachedDrillStatus = new Dictionary<Building, DrillStatusInfo>(); // Cache drill status info
-        private int lastFilterCount = 0; // Track filter count to detect changes
         
         /// <summary>
         /// Get enabled resource types from the persistent filter component
@@ -234,54 +223,43 @@ namespace DeepResourceManager
         /// </summary>
         private float GetResourceCommonality(ThingDef def)
         {
-            if (cachedCommonality.TryGetValue(def, out float cached))
-            {
-                return cached;
-            }
-            
-            float result = 0f;
-            
             // First check for standard deepCommonality
             if (def.deepCommonality > 0f)
             {
-                result = def.deepCommonality;
+                return def.deepCommonality;
             }
-            else
+            
+            // Check for treasure commonality via mod extensions
+            if (def.modExtensions != null)
             {
-                // Check for treasure commonality via mod extensions
-                if (def.modExtensions != null)
+                foreach (var ext in def.modExtensions)
                 {
-                    foreach (var ext in def.modExtensions)
+                    var extType = ext.GetType();
+                    
+                    if (extType.Name == "TreasureThingDef" || extType.FullName.Contains("TreasureThingDef"))
                     {
-                        var extType = ext.GetType();
-                        
-                        if (extType.Name == "TreasureThingDef" || extType.FullName.Contains("TreasureThingDef"))
+                        // Try field first (since it's a field, not a property)
+                        var field = extType.GetField("treasureCommonality", BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.IgnoreCase);
+                        if (field != null)
                         {
-                            // Try field first (since it's a field, not a property)
-                            var field = extType.GetField("treasureCommonality", BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.IgnoreCase);
+                            var value = field.GetValue(ext);
+                            if (value is float commonality && commonality > 0f)
+                            {
+                                return commonality;
+                            }
+                        }
+                        
+                        // Try alternative field names
+                        var altNames = new[] { "TreasureCommonality" };
+                        foreach (var name in altNames)
+                        {
+                            field = extType.GetField(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.IgnoreCase);
                             if (field != null)
                             {
                                 var value = field.GetValue(ext);
                                 if (value is float commonality && commonality > 0f)
                                 {
-                                    result = commonality;
-                                    break;
-                                }
-                            }
-                            
-                            // Try alternative field names
-                            var altNames = new[] { "TreasureCommonality" };
-                            foreach (var name in altNames)
-                            {
-                                field = extType.GetField(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.IgnoreCase);
-                                if (field != null)
-                                {
-                                    var value = field.GetValue(ext);
-                                    if (value is float commonality && commonality > 0f)
-                                    {
-                                        result = commonality;
-                                        break;
-                                    }
+                                    return commonality;
                                 }
                             }
                         }
@@ -289,8 +267,7 @@ namespace DeepResourceManager
                 }
             }
             
-            cachedCommonality[def] = result;
-            return result;
+            return 0f;
         }
 
         public MainTabWindow_DeepResources()
@@ -398,12 +375,7 @@ namespace DeepResourceManager
             // Count active drills for each deposit
             CountActiveDrills(map);
             
-            // Clear drill status cache when deposits update (drills may have changed)
-            cachedDrillStatus.Clear();
-            
-            isDirty = false;
-            cacheDirty = true; // Mark cache as dirty
-            listUpdateNext = Find.TickManager.TicksGame + GenTicks.TickRareInterval; // Update every ~250 ticks
+            // Deposits updated
         }
 
         private void CountActiveDrills(Map map)
@@ -527,73 +499,41 @@ namespace DeepResourceManager
         public override void PreOpen()
         {
             base.PreOpen();
-            isDirty = true;
-            cacheDirty = true; // Mark cache as dirty
             // Note: GameComponent is automatically instantiated via XML registration, no need to manually add it
         }
         
         /// <summary>
-        /// Update cached filtered deposits list - only recalculates when needed
+        /// Get filtered and sorted deposits list
         /// </summary>
-        private void UpdateCachedFilteredDeposits()
+        private List<ResourceDeposit> GetFilteredDeposits()
         {
             var enabledResourceTypes = GetEnabledResourceTypes();
             
-            // Check if filter count changed (indicates filter window was used)
-            int currentFilterCount = enabledResourceTypes.Count;
-            if (currentFilterCount != lastFilterCount)
-            {
-                cacheDirty = true;
-                lastFilterCount = currentFilterCount;
-            }
-            
-            if (!cacheDirty && cachedFilteredDeposits != null)
-            {
-                return; // Cache is still valid
-            }
-            
             if (deepResources == null)
             {
-                cachedFilteredDeposits = new List<ResourceDeposit>();
-                cacheDirty = false;
-                return;
+                return new List<ResourceDeposit>();
             }
             
-            // Filter and sort deposits
-            cachedFilteredDeposits = deepResources
+            // Filter and sort deposits (every frame for testing)
+            return deepResources
                 .Where(d => enabledResourceTypes.Contains(d.resource))
                 .OrderBy(r => r.resource.label)
                 .ThenBy(r => r.position.x)
                 .ThenBy(r => r.position.z)
                 .ToList();
-            
-            // Update cached deposit indices
-            cachedDepositIndices.Clear();
-            for (int i = 0; i < cachedFilteredDeposits.Count; i++)
-            {
-                var deposit = cachedFilteredDeposits[i];
-                int actualIdx = deepResources.FindIndex(d => d.resource == deposit.resource && d.position == deposit.position);
-                if (actualIdx >= 0)
-                {
-                    cachedDepositIndices[i] = actualIdx;
-                }
-            }
-            
-            cacheDirty = false;
+        }
+        
+        private int GetDepositIndex(ResourceDeposit deposit)
+        {
+            if (deepResources == null) return -1;
+            return deepResources.FindIndex(d => d.resource == deposit.resource && d.position == deposit.position);
         }
         
         /// <summary>
-        /// Update drill status info - only updates periodically, not every frame
+        /// Get drill status info - calculates everything every frame (testing performance)
         /// </summary>
-        private void UpdateDrillStatusCache(Map map, ResourceDeposit deposit, Building drill)
+        private DrillStatusInfo GetDrillStatus(Map map, ResourceDeposit deposit, Building drill)
         {
-            int updateInterval = GenTicks.TickRareInterval / 2; // Update every ~125 ticks (more frequent than deposits)
-            
-            if (drillStatusUpdateNext > Find.TickManager.TicksGame && cachedDrillStatus.ContainsKey(drill))
-            {
-                return; // Cache is still valid
-            }
-            
             var powerComp = drill.TryGetComp<CompPowerTrader>();
             bool isPowered = powerComp == null || powerComp.PowerOn;
             var deepDrillComp = drill.TryGetComp<CompDeepDrill>();
@@ -629,7 +569,7 @@ namespace DeepResourceManager
                 }
             }
             
-            // Calculate mineable amount (only when cache updates)
+            // Calculate mineable amount (every frame for testing)
             int mineableAmount = 0;
             if (map != null)
             {
@@ -659,7 +599,7 @@ namespace DeepResourceManager
                 }
             }
             
-            cachedDrillStatus[drill] = new DrillStatusInfo
+            return new DrillStatusInfo
             {
                 status = status,
                 statusColor = statusColor,
@@ -667,11 +607,6 @@ namespace DeepResourceManager
                 mineableAmount = mineableAmount,
                 workingPawn = workingPawn
             };
-            
-            if (drillStatusUpdateNext <= Find.TickManager.TicksGame)
-            {
-                drillStatusUpdateNext = Find.TickManager.TicksGame + updateInterval;
-            }
         }
 
         public override void DoWindowContents(Rect inRect)
@@ -686,19 +621,11 @@ namespace DeepResourceManager
                 return;
             }
 
-            // Update the list if needed (periodically or if dirty)
-            if (listUpdateNext < Find.TickManager.TicksGame)
-            {
-                isDirty = true;
-            }
+            // Update the list every frame (testing performance)
+            UpdateDeepResourceList();
             
-            if (isDirty || deepResources == null)
-            {
-                UpdateDeepResourceList();
-            }
-            
-            // Update cached filtered deposits if needed
-            UpdateCachedFilteredDeposits();
+            // Get filtered deposits
+            var filteredDeposits = GetFilteredDeposits();
             
             // Title and Filter button on same line
             Text.Font = GameFont.Medium;
@@ -712,11 +639,8 @@ namespace DeepResourceManager
                 return;
             }
             
-            // Get unique resource types from discovered resources (cache this too if it becomes expensive)
+            // Get unique resource types from discovered resources
             var uniqueResourceTypes = deepResources.Select(r => r.resource).Distinct().OrderBy(r => r.label).ToList();
-            
-            // Use cached filtered deposits
-            var filteredDeposits = cachedFilteredDeposits ?? new List<ResourceDeposit>();
             
             // Display deposit count below title
             int totalCells = filteredDeposits.Sum(r => r.cellCount);
@@ -751,12 +675,12 @@ namespace DeepResourceManager
                 // If the filter is empty but the component was loaded from save, HasBeenInitialized will be true
                 if (enabledResourceTypes.Count == 0 && uniqueResourceTypes.Count > 0)
                 {
+                    // Auto-enable all discovered types (respects explicitly disabled list, which should be empty on new game)
                     foreach (var resourceType in uniqueResourceTypes)
                     {
-                        persistence.AddResourceType(resourceType);
+                        persistence.AddResourceTypeAuto(resourceType);
                     }
                     persistence.MarkAsInitialized();
-                    cacheDirty = true; // Mark cache dirty when filter changes
                 }
                 else
                 {
@@ -765,12 +689,24 @@ namespace DeepResourceManager
                 }
             }
             
+            // Auto-enable newly discovered resource types (after initialization)
+            // Only enables types that haven't been explicitly disabled by the user
+            if (persistence != null && persistence.HasBeenInitialized)
+            {
+                foreach (var resourceType in uniqueResourceTypes)
+                {
+                    if (!persistence.IsResourceTypeEnabled(resourceType) && !persistence.IsExplicitlyDisabled(resourceType))
+                    {
+                        persistence.AddResourceTypeAuto(resourceType);
+                    }
+                }
+            }
+            
             // Filter button next to title
             Rect filterButtonRect = new Rect(inRect.x + titleWidth + 10f, inRect.y, 150f, 30f);
             if (Widgets.ButtonText(filterButtonRect, "Filter Resources"))
             {
                 Find.WindowStack.Add(new DeepResourceFilterWindow(persistence, uniqueResourceTypes));
-                cacheDirty = true; // Mark cache dirty when filter window is opened (user might change filter)
             }
             
             // Define column widths (same as in the table drawing code)
@@ -790,11 +726,12 @@ namespace DeepResourceManager
             float baseHeight = (filteredDeposits.Count + 1) * (lineHeight + 2f);
             float expandedHeight = 0f;
             int calcIdx = 0;
-            foreach (var deposit in filteredDeposits) // Already sorted from cache
+            foreach (var deposit in filteredDeposits)
             {
                 if (expandedDeposits.Contains(calcIdx) && deposit.totalDrillsOnDeposit > 0)
                 {
-                    if (cachedDepositIndices.TryGetValue(calcIdx, out int actualIdx) && depositDrills.ContainsKey(actualIdx))
+                    int actualIdx = GetDepositIndex(deposit);
+                    if (actualIdx >= 0 && depositDrills.ContainsKey(actualIdx))
                     {
                         expandedHeight += depositDrills[actualIdx].Count * (drillRowHeight + 1f);
                     }
@@ -869,10 +806,11 @@ namespace DeepResourceManager
             hoveredLookTargets = null; // Reset look targets
             
             int displayIndex = 0;
-            foreach (var deposit in filteredDeposits) // Already sorted from cache
+            foreach (var deposit in filteredDeposits)
             {
-                // Get the actual index from cache
-                if (!cachedDepositIndices.TryGetValue(displayIndex, out int depositIndex) || depositIndex < 0)
+                // Get the actual index
+                int depositIndex = GetDepositIndex(deposit);
+                if (depositIndex < 0)
                 {
                     displayIndex++;
                     continue;
@@ -1032,7 +970,7 @@ namespace DeepResourceManager
                     }
                 }
                 Text.Anchor = TextAnchor.MiddleRight;
-                float commonality = GetResourceCommonality(resource); // Uses cache internally
+                float commonality = GetResourceCommonality(resource);
                 Widgets.Label(commonCellRect, commonality.ToString("F2"));
                 if (commonHovered)
                 {
@@ -1113,23 +1051,8 @@ namespace DeepResourceManager
                         float drillY = currentY;
                         float indent = colExpandWidth + 10f; // Align with expand column
                         
-                        // Update drill status cache (only periodically)
-                        UpdateDrillStatusCache(map, deposit, drill);
-                        
-                        // Get cached drill status
-                        DrillStatusInfo drillInfo;
-                        if (!cachedDrillStatus.TryGetValue(drill, out drillInfo))
-                        {
-                            // Fallback if cache miss (shouldn't happen, but be safe)
-                            drillInfo = new DrillStatusInfo
-                            {
-                                status = "Idle",
-                                statusColor = Color.gray,
-                                progressPercent = 0f,
-                                mineableAmount = 0,
-                                workingPawn = null
-                            };
-                        }
+                        // Get drill status (calculated every frame)
+                        DrillStatusInfo drillInfo = GetDrillStatus(map, deposit, drill);
                         
                         // Drill row - use as progress bar (match table width)
                         Rect drillRowRect = new Rect(0f, drillY, totalTableWidth, drillRowHeight);
