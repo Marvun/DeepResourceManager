@@ -605,6 +605,36 @@ namespace DeepResourceManager
                 }
             }
         }
+        
+        /// <summary>
+        /// Recalculate yields for all deposits (resources may have been mined)
+        /// </summary>
+        private void RecalculateDepositYields(Map map)
+        {
+            if (map == null || deepResources == null)
+            {
+                return;
+            }
+            
+            DeepResourceGrid grid = map.deepResourceGrid;
+            
+            // Recalculate yield for each deposit
+            for (int i = 0; i < deepResources.Count; i++)
+            {
+                var deposit = deepResources[i];
+                if (deposit.cells == null) continue;
+                
+                int totalYield = 0;
+                foreach (IntVec3 depositCell in deposit.cells)
+                {
+                    int amountAtCell = grid.CountAt(depositCell);
+                    totalYield += amountAtCell;
+                }
+                
+                deposit.totalYield = totalYield;
+                deepResources[i] = deposit;
+            }
+        }
 
         public override Vector2 RequestedTabSize => new Vector2(900f, (float)UI.screenHeight);
 
@@ -684,7 +714,10 @@ namespace DeepResourceManager
             // Update drill-to-deposit mapping (detects when drills are placed/moved)
             CountActiveDrills(map);
             
-            // Mark cache dirty so UI updates with new drill counts
+            // Recalculate deposit yields (resources may have been mined)
+            RecalculateDepositYields(map);
+            
+            // Mark cache dirty so UI updates with new drill counts and yields
             cacheDirty = true;
             
             // First, map colonists to their drills (loop through colonists once, not per drill)
@@ -1292,6 +1325,13 @@ namespace DeepResourceManager
                         {
                             Widgets.Label(progressTextRect, $"{drillInfo.progressPercent * 100f:F1}%");
                         }
+                        
+                        // Mineable yield text (align with Total Yield column)
+                        float yieldColumnX = colExpandWidth + colSpacing + colResourceWidth + colSpacing + colCellsWidth + colSpacing;
+                        Rect drillYieldRect = new Rect(yieldColumnX, drillY, colYieldWidth, drillRowHeight);
+                        Text.Anchor = TextAnchor.MiddleRight;
+                        GUI.color = Color.white;
+                        Widgets.Label(drillYieldRect, drillInfo.mineableAmount.ToString());
                         
                         // Allowed checkbox - align with deposit checkbox column
                         float allowedColumnX = colExpandWidth + colSpacing + colResourceWidth + colSpacing + colCellsWidth + colSpacing + colYieldWidth + colSpacing + colDrillsWidth + colSpacing + colCommonWidth + colSpacing;
