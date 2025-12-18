@@ -1,3 +1,4 @@
+using HarmonyLib;
 using Verse;
 
 namespace DeepResourceManager
@@ -9,6 +10,13 @@ namespace DeepResourceManager
     {
         public DeepResourceManagerMod(ModContentPack content) : base(content)
         {
+            // Apply Harmony patches
+            var harmony = new Harmony("com.deepresourcemanager.patches");
+            harmony.PatchAll();
+            
+            // Manually patch CompTreasureScanner (from RomyTreasures mod) since it's from another mod
+            CompTreasureScanner_Patch.Initialize(harmony);
+            
             Log.Message("Deep Resource Manager: Mod loaded successfully!");
         }
     }

@@ -54,8 +54,13 @@
       <HintPath>..\..\..\..\RimWorldWin64_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>..\..\..\..\Mods\Harmony\Current\Assemblies\0Harmony.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="CompDeepScanner_Patch.cs" />
     <Compile Include="DeepResourceFilterComponent.cs" />
     <Compile Include="DeepResourceFilterPersistence.cs" />
     <Compile Include="DeepResourceListWindow.cs" />
